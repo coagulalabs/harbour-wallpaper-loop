@@ -40,7 +40,7 @@ Sailfish does not use Android-style live wallpapers. This app calls the Ambience
 
 ### Requirements
 
-- Sailfish OS 5.x (aarch64)
+- Sailfish OS 5.x (aarch64 or armv7hl)
 - Ambience, Pictures, Downloads, and UserDirs permissions (requested via Sailjail)
 
 ### Limitations (1.3.0)
@@ -62,9 +62,13 @@ Via Storeman / OpenRepos client, or:
 
 ```
 devel-su pkcon install-local harbour-wallpaper-loop-1.3.0-1.aarch64.rpm
+# or for armv7hl devices:
+devel-su pkcon install-local harbour-wallpaper-loop-1.3.0-1.armv7hl.rpm
 ```
 
-RPM path after packaging: `dist-wallpaper-loop/harbour-wallpaper-loop-1.3.0-1.aarch64.rpm`
+RPM paths after packaging:
+- `dist-wallpaper-loop/harbour-wallpaper-loop-1.3.0-1.aarch64.rpm`
+- `dist-wallpaper-loop/harbour-wallpaper-loop-1.3.0-1.armv7hl.rpm`
 
 Paste-ready plain text for the OpenRepos form: [`description.txt`](description.txt)
 

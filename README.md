@@ -16,7 +16,7 @@ Sailfish port of the Android app [`dev.wallpaper.loop`](https://github.com/coagu
 
 ## Requirements
 
-- Sailfish OS 5.x (aarch64)
+- Sailfish OS 5.x (aarch64 or armv7hl)
 - Sailjail permissions: Ambience, UserDirs, Downloads, Pictures
 
 ## Build & install
@@ -26,15 +26,15 @@ From the SailfishOS workspace root:
 ```bash
 ./scripts/deploy-wallpaper-loop.sh          # build + install on phone
 ./scripts/deploy-wallpaper-loop.sh --clean  # clean rebuild
-./scripts/package-wallpaper-loop.sh         # RPM → dist-wallpaper-loop/
+./scripts/package-wallpaper-loop.sh all     # aarch64 + armv7hl → dist-wallpaper-loop/
 ```
 
-Requires Sailfish SDK target `SailfishOS-5.1.0.11-aarch64` (or compatible 5.0+).
+Requires Sailfish SDK targets `SailfishOS-5.1.0.11-aarch64` and `…-armv7hl` (or compatible 5.0+).
 
 ## Publish (GitHub + OpenRepos)
 
 ```bash
-./scripts/publish-wallpaper-loop.sh                           # build + cache RPM
+./scripts/publish-wallpaper-loop.sh                           # build both arches + cache RPMs
 ./scripts/publish-wallpaper-loop.sh --github                  # + GitHub release
 OPENREPOS_USERNAME=... OPENREPOS_PASSWORD=... \
   ./scripts/publish-wallpaper-loop.sh --openrepos             # + OpenRepos upload
@@ -42,7 +42,9 @@ OPENREPOS_USERNAME=... OPENREPOS_PASSWORD=... \
 
 OpenRepos listing copy: [`openrepos/listing.md`](openrepos/listing.md)
 
-Cached RPM: `dist-wallpaper-loop/harbour-wallpaper-loop-1.3.0-1.aarch64.rpm`
+Cached RPMs:
+- `dist-wallpaper-loop/harbour-wallpaper-loop-1.3.0-1.aarch64.rpm`
+- `dist-wallpaper-loop/harbour-wallpaper-loop-1.3.0-1.armv7hl.rpm`
 
 ## How wallpaper works on Sailfish
 

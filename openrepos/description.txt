@@ -17,7 +17,7 @@ How it works:
 Sailfish uses Ambiences for wallpaper (not Android WallpaperManager). This app calls com.jolla.ambienced.setAmbience so each image becomes the active Ambience. Home and lock screens share the same wallpaper.
 
 Requirements:
-• Sailfish OS 5.x (aarch64)
+• Sailfish OS 5.x (aarch64 or armv7hl)
 • Ambience, Pictures, Downloads, and UserDirs permissions
 
 Limitations (1.3.0):
