@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+X-Nemo-Application-Type=silica-qt5
+Icon=harbour-wallpaper-loop
+Exec=harbour-wallpaper-loop
+Name=Wallpaper Loop
+Comment=Cycle folder images as Ambience wallpaper
+
+[X-Sailjail]
+OrganizationName=harbour-wallpaper-loop
+ApplicationName=harbour-wallpaper-loop
+Permissions=UserDirs;Downloads;Pictures;Ambience;Compatibility

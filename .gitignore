@@ -1,0 +1,16 @@
+Makefile
+Makefile.*
+.qmake.stash
+*.o
+moc_*.cpp
+moc_*.h
+harbour-wallpaper-loop
+RPMS/
+.sfdk/
+dist/
+*.rpm
+documentation.list
+*.pro.user
+*.pro.user.*
+.idea/
+.vscode/
