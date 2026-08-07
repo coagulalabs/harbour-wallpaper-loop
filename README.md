@@ -2,8 +2,6 @@
 
 Native Sailfish OS app that cycles through a folder of images and applies each one as your **Ambience** wallpaper on a timer.
 
-Sailfish port of the Android app [`dev.wallpaper.loop`](https://github.com/coagulalabs) (Wallpaper Loop).
-
 ## Features
 
 - Folder browser (Pictures, Downloads, Home)
