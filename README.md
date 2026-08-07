@@ -48,7 +48,7 @@ Cached RPMs:
 
 ## How wallpaper works on Sailfish
 
-Sailfish does not expose Android’s `WallpaperManager`. Home/lock visuals are **Ambiences**, managed by `ambienced`. This app calls:
+Home/lock visuals are **Ambiences**, managed by `ambienced`. This app calls:
 
 ```
 com.jolla.ambienced.setAmbience(file:///path/to/image.jpg)
