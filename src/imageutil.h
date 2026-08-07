@@ -28,10 +28,15 @@ inline bool isImageFile(const QString &fileName)
         || lower.endsWith(QLatin1String(".gif"));
 }
 
+// Seconds for common long presets (30-day month).
+const int kIntervalDay = 86400;
+const int kIntervalWeek = 604800;
+const int kIntervalMonth = 2592000;
+
 inline int clampIntervalSeconds(int seconds)
 {
     const int kMin = 15;
-    const int kMax = 86400;
+    const int kMax = kIntervalMonth; // ~30 days
     if (seconds < kMin)
         return kMin;
     if (seconds > kMax)

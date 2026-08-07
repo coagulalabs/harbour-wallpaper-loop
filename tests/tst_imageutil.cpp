@@ -59,8 +59,10 @@ void TstImageUtil::clampInterval_data()
     QTest::newRow("below") << 1 << 15;
     QTest::newRow("min") << 15 << 15;
     QTest::newRow("defaultish") << 300 << 300;
-    QTest::newRow("max") << 86400 << 86400;
-    QTest::newRow("above") << 999999 << 86400;
+    QTest::newRow("day") << 86400 << 86400;
+    QTest::newRow("week") << 604800 << 604800;
+    QTest::newRow("month") << 2592000 << 2592000;
+    QTest::newRow("above") << 9999999 << 2592000;
 }
 
 void TstImageUtil::clampInterval()

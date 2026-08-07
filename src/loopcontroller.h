@@ -1,13 +1,17 @@
 #ifndef LOOPCONTROLLER_H
 #define LOOPCONTROLLER_H
 
+#include <QDateTime>
 #include <QObject>
 #include <QStringList>
 #include <QTimer>
 
+class StatusNotification;
+
 class LoopController : public QObject
 {
     Q_OBJECT
+    Q_CLASSINFO("D-Bus Interface", "harbour.wallpaperloop")
     Q_PROPERTY(bool enabled READ enabled WRITE setEnabled NOTIFY enabledChanged)
     Q_PROPERTY(QString folderPath READ folderPath WRITE setFolderPath NOTIFY folderPathChanged)
     Q_PROPERTY(QString folderName READ folderName NOTIFY folderPathChanged)
@@ -23,10 +27,20 @@ class LoopController : public QObject
     Q_PROPERTY(QString positionText READ positionText NOTIFY playlistChanged)
     Q_PROPERTY(bool hasFolder READ hasFolder NOTIFY folderPathChanged)
     Q_PROPERTY(bool canSkip READ canSkip NOTIFY playlistChanged)
+    Q_PROPERTY(bool daemonMode READ daemonMode CONSTANT)
+    Q_PROPERTY(bool serviceRunning READ serviceRunning NOTIFY serviceRunningChanged)
 
 public:
-    explicit LoopController(QObject *parent = nullptr);
+    static const char *dbusServiceName();
+    static const char *dbusObjectPath();
+    static const char *dbusInterfaceName();
+    static const char *systemdUnitName();
 
+    explicit LoopController(bool daemonMode = false, QObject *parent = nullptr);
+    ~LoopController() override;
+
+    bool daemonMode() const { return m_daemonMode; }
+    bool serviceRunning() const { return m_serviceRunning; }
     bool enabled() const { return m_enabled; }
     QString folderPath() const { return m_folderPath; }
     QString folderName() const;
@@ -53,10 +67,22 @@ public:
     Q_INVOKABLE void previous();
     Q_INVOKABLE void refreshPlaylist();
     Q_INVOKABLE void applyCurrent();
+    Q_INVOKABLE void refreshServiceStatus();
     Q_INVOKABLE QStringList folderEntries(const QString &path) const;
     Q_INVOKABLE QString parentFolder(const QString &path) const;
     Q_INVOKABLE QString picturesPath() const;
     Q_INVOKABLE QString homePath() const;
+
+    bool registerDaemonBus();
+
+public Q_SLOTS:
+    // Session D-Bus API for the UI / Events notification when the daemon owns the timer.
+    void reload();
+    void daemonNext();
+    void daemonPrevious();
+    void daemonApplyCurrent();
+    void stopSlideshow();
+    QString ping() const;
 
 signals:
     void enabledChanged();
@@ -67,6 +93,7 @@ signals:
     void includeSubfoldersChanged();
     void playlistChanged();
     void statusTextChanged();
+    void serviceRunningChanged();
 
 private slots:
     void onTick();
@@ -77,11 +104,27 @@ private:
     void rebuildPlaylist(bool resetIndex);
     void setStatusText(const QString &text);
     void scheduleNext();
+    void armTimerChunk();
     bool applyPath(const QString &sourcePath);
     QString stageScaledImage(const QString &sourcePath) const;
     QStringList scanImages(const QString &root, bool recursive) const;
 
+    void maybeSchedule();
+    void notifyDaemonReload();
+    bool callDaemon(const QString &method);
+    bool startUserService();
+    bool stopUserService();
+    bool queryServiceActive() const;
+    void setServiceRunning(bool running);
+    void updateRunningStatusText();
+    void refreshStatusNotification();
+
     QTimer m_timer;
+    QTimer m_servicePoll;
+    QDateTime m_nextTick;
+    StatusNotification *m_statusNotification = nullptr;
+    bool m_daemonMode = false;
+    bool m_serviceRunning = false;
     bool m_enabled = false;
     bool m_includeSubfolders = true;
     int m_intervalSeconds = 300;

@@ -9,4 +9,4 @@ Comment=Cycle folder images as Ambience wallpaper
 [X-Sailjail]
 OrganizationName=harbour-wallpaper-loop
 ApplicationName=harbour-wallpaper-loop
-Permissions=UserDirs;Downloads;Pictures;Ambience;Compatibility
+Permissions=UserDirs;Downloads;Pictures;Ambience;AppLaunch;Compatibility

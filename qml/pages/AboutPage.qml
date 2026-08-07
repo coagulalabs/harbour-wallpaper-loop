@@ -4,7 +4,7 @@ import Sailfish.Silica 1.0
 Page {
     id: page
 
-    readonly property string appVersion: "1.3.0"
+    readonly property string appVersion: "1.6.0"
 
     SilicaFlickable {
         anchors.fill: parent
@@ -63,11 +63,12 @@ Page {
                 color: Theme.secondaryColor
                 font.pixelSize: Theme.fontSizeSmall
                 text: "• " + qsTr("Folder browser (Pictures, Downloads, Home)")
-                      + "\n• " + qsTr("Interval slider and presets (30s–1h)")
+                      + "\n• " + qsTr("Interval slider and presets (30s–1 month)")
+                      + "\n• " + qsTr("Background systemd user service (close the app freely)")
+                      + "\n• " + qsTr("Next / Previous / Stop in Events (notifications)")
                       + "\n• " + qsTr("Sequential or shuffle order")
                       + "\n• " + qsTr("Fill / Fit / Contain scaling")
                       + "\n• " + qsTr("Include subfolders")
-                      + "\n• " + qsTr("Next / Previous in app and cover")
                       + "\n• " + qsTr("Settings persist across launches")
             }
 
@@ -81,8 +82,10 @@ Page {
                 font.pixelSize: Theme.fontSizeSmall
                 text: qsTr("Sailfish uses Ambiences for wallpaper — home and lock share "
                            + "the same image. Supported stills: JPG, PNG, WebP, BMP, GIF "
-                           + "(first frame). Keep the app running or covered for the timer "
-                           + "to keep ticking. Animated live wallpaper is not available on Sailfish.")
+                           + "(first frame). Turning Slideshow on starts a user service and an "
+                           + "Events notification with Next / Previous / Stop — swipe the app "
+                           + "away from the home screen. Animated live wallpaper is not available "
+                           + "on Sailfish.")
             }
 
             SectionHeader { text: qsTr("Links") }

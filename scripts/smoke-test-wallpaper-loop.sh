@@ -72,6 +72,8 @@ check "binary present" "${SSH[@]}" test -x /usr/bin/harbour-wallpaper-loop
 check "desktop present" "${SSH[@]}" test -f /usr/share/applications/harbour-wallpaper-loop.desktop
 check "qml main present" "${SSH[@]}" test -f /usr/share/harbour-wallpaper-loop/qml/harbour-wallpaper-loop.qml
 check "sailjail profile" "${SSH[@]}" test -f /etc/sailjail/applications/harbour-wallpaper-loop.profile
+check "user unit installed" \
+  "${SSH[@]}" test -f /usr/lib/systemd/user/harbour-wallpaper-loop.service
 check "desktop omits video" \
   remote_lacks video /usr/share/applications/harbour-wallpaper-loop.desktop
 check "main page mentions Ambience" \

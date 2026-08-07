@@ -22,22 +22,30 @@ CoverBackground {
 
         Label {
             width: parent.width
-            text: LoopController.enabled ? qsTr("Running") : qsTr("Stopped")
+            text: {
+                if (!LoopController.enabled)
+                    return qsTr("Stopped")
+                if (LoopController.serviceRunning)
+                    return qsTr("Background")
+                return qsTr("Starting…")
+            }
             color: LoopController.enabled ? Theme.highlightColor : Theme.secondaryColor
             font.pixelSize: Theme.fontSizeSmall
         }
 
         Label {
             width: parent.width
-            text: LoopController.positionText
-            color: Theme.secondaryColor
+            visible: LoopController.enabled
+            text: qsTr("Controls in Events")
+            color: Theme.secondaryHighlightColor
             font.pixelSize: Theme.fontSizeExtraSmall
+            wrapMode: Text.Wrap
         }
 
         Label {
             width: parent.width
             text: LoopController.currentName
-            color: Theme.secondaryHighlightColor
+            color: Theme.secondaryColor
             font.pixelSize: Theme.fontSizeExtraSmall
             wrapMode: Text.Wrap
             maximumLineCount: 3
@@ -45,16 +53,6 @@ CoverBackground {
         }
     }
 
-    CoverActionList {
-        enabled: LoopController.mediaCount > 0
-
-        CoverAction {
-            iconSource: "image://theme/icon-cover-previous"
-            onTriggered: LoopController.previous()
-        }
-        CoverAction {
-            iconSource: "image://theme/icon-cover-next"
-            onTriggered: LoopController.next()
-        }
-    }
+    // No CoverActionList — Next/Previous/Stop live in the Events notification
+    // so the home-screen card is not required.
 }

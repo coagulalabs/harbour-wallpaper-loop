@@ -1,0 +1,13 @@
+[Unit]
+Description=Wallpaper Loop Ambience slideshow
+After=user-session.target graphical-session.target
+Wants=user-session.target
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/harbour-wallpaper-loop --daemon
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

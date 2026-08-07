@@ -1,6 +1,8 @@
 #include "loopcontroller.h"
 #include "imageutil.h"
+#include "statusnotification.h"
 
+#include <QCoreApplication>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -12,7 +14,9 @@
 #include <QStandardPaths>
 #include <QUrl>
 #include <QtDBus/QDBusConnection>
+#include <QtDBus/QDBusInterface>
 #include <QtDBus/QDBusMessage>
+#include <QtDBus/QDBusObjectPath>
 #include <QtDBus/QDBusReply>
 
 #include <algorithm>
@@ -22,10 +26,38 @@ namespace {
 const char kOrg[] = "harbour-wallpaper-loop";
 const char kApp[] = "settings";
 const int kDefaultInterval = 300;
+const char kUnit[] = "harbour-wallpaper-loop.service";
 }
 
-LoopController::LoopController(QObject *parent)
+const char *LoopController::dbusServiceName()
+{
+    return "harbour.wallpaperloop";
+}
+
+const char *LoopController::dbusObjectPath()
+{
+    return "/harbour/wallpaperloop";
+}
+
+const char *LoopController::dbusInterfaceName()
+{
+    return "harbour.wallpaperloop";
+}
+
+const char *LoopController::systemdUnitName()
+{
+    return kUnit;
+}
+
+LoopController::~LoopController()
+{
+    if (m_statusNotification)
+        m_statusNotification->clear();
+}
+
+LoopController::LoopController(bool daemonMode, QObject *parent)
     : QObject(parent)
+    , m_daemonMode(daemonMode)
 {
     m_timer.setSingleShot(true);
     connect(&m_timer, &QTimer::timeout, this, &LoopController::onTick);
@@ -33,10 +65,34 @@ LoopController::LoopController(QObject *parent)
     loadSettings();
     rebuildPlaylist(false);
 
-    if (m_enabled && !m_playlist.isEmpty()) {
-        applyCurrent();
-        scheduleNext();
-        setStatusText(tr("Slideshow running"));
+    if (m_daemonMode) {
+        m_statusNotification = new StatusNotification(this);
+        if (m_enabled && !m_playlist.isEmpty()) {
+            applyCurrent();
+            scheduleNext();
+            setStatusText(tr("Background slideshow running"));
+            refreshStatusNotification();
+        } else if (!m_enabled) {
+            setStatusText(tr("Daemon idle — slideshow disabled"));
+        } else if (m_folderPath.isEmpty()) {
+            setStatusText(tr("Daemon idle — no folder"));
+        } else {
+            setStatusText(tr("Daemon idle — no images"));
+        }
+        return;
+    }
+
+    // UI mode: never owns the interval timer; poll/start the user service.
+    m_servicePoll.setInterval(3000);
+    connect(&m_servicePoll, &QTimer::timeout, this, &LoopController::refreshServiceStatus);
+    m_servicePoll.start();
+    refreshServiceStatus();
+
+    if (m_enabled && !m_folderPath.isEmpty() && !m_playlist.isEmpty()) {
+        if (!m_serviceRunning)
+            startUserService();
+        refreshServiceStatus();
+        updateRunningStatusText();
     } else if (m_folderPath.isEmpty()) {
         setStatusText(tr("Choose a folder to begin"));
     } else if (m_playlist.isEmpty()) {
@@ -44,6 +100,21 @@ LoopController::LoopController(QObject *parent)
     } else {
         setStatusText(tr("Slideshow stopped"));
     }
+}
+
+bool LoopController::registerDaemonBus()
+{
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected())
+        return false;
+    if (!bus.registerService(QString::fromLatin1(dbusServiceName())))
+        return false;
+    if (!bus.registerObject(QString::fromLatin1(dbusObjectPath()), this,
+                            QDBusConnection::ExportAllSlots)) {
+        bus.unregisterService(QString::fromLatin1(dbusServiceName()));
+        return false;
+    }
+    return true;
 }
 
 QString LoopController::folderName() const
@@ -56,16 +127,21 @@ QString LoopController::folderName() const
 
 QString LoopController::currentName() const
 {
-    if (m_playlist.isEmpty() || m_currentIndex < 0 || m_currentIndex >= m_playlist.size())
-        return QString();
-    return QFileInfo(m_playlist.at(m_currentIndex)).fileName();
+    if (!m_playlist.isEmpty() && m_currentIndex >= 0 && m_currentIndex < m_playlist.size())
+        return QFileInfo(m_playlist.at(m_currentIndex)).fileName();
+    QSettings s(QString::fromLatin1(kOrg), QString::fromLatin1(kApp));
+    const QString saved = s.value(QStringLiteral("currentPath")).toString();
+    if (!saved.isEmpty())
+        return QFileInfo(saved).fileName();
+    return QString();
 }
 
 QString LoopController::currentPath() const
 {
-    if (m_playlist.isEmpty() || m_currentIndex < 0 || m_currentIndex >= m_playlist.size())
-        return QString();
-    return m_playlist.at(m_currentIndex);
+    if (!m_playlist.isEmpty() && m_currentIndex >= 0 && m_currentIndex < m_playlist.size())
+        return m_playlist.at(m_currentIndex);
+    QSettings s(QString::fromLatin1(kOrg), QString::fromLatin1(kApp));
+    return s.value(QStringLiteral("currentPath")).toString();
 }
 
 QString LoopController::positionText() const
@@ -96,12 +172,36 @@ void LoopController::setEnabled(bool enabled)
     saveSettings();
     emit enabledChanged();
 
+    if (m_daemonMode) {
+        if (m_enabled) {
+            applyCurrent();
+            scheduleNext();
+            setStatusText(tr("Background slideshow running"));
+            refreshStatusNotification();
+        } else {
+            m_timer.stop();
+            m_nextTick = QDateTime();
+            if (m_statusNotification)
+                m_statusNotification->clear();
+            setStatusText(tr("Daemon idle — slideshow disabled"));
+        }
+        return;
+    }
+
+    // UI: control the user service; do not arm a local timer.
+    m_timer.stop();
+    m_nextTick = QDateTime();
     if (m_enabled) {
         applyCurrent();
-        scheduleNext();
-        setStatusText(tr("Slideshow running"));
+        if (!startUserService())
+            setStatusText(tr("Could not start background service"));
+        else {
+            refreshServiceStatus();
+            updateRunningStatusText();
+        }
     } else {
-        m_timer.stop();
+        stopUserService();
+        refreshServiceStatus();
         setStatusText(tr("Slideshow stopped"));
     }
 }
@@ -129,9 +229,18 @@ void LoopController::setFolderPath(const QString &path)
     rebuildPlaylist(true);
 
     if (m_enabled && !m_playlist.isEmpty()) {
-        applyCurrent();
-        scheduleNext();
-        setStatusText(tr("Slideshow running"));
+        if (m_daemonMode) {
+            applyCurrent();
+            scheduleNext();
+            setStatusText(tr("Background slideshow running"));
+        } else {
+            applyCurrent();
+            notifyDaemonReload();
+            if (!m_serviceRunning)
+                startUserService();
+            refreshServiceStatus();
+            updateRunningStatusText();
+        }
     } else if (m_playlist.isEmpty()) {
         setStatusText(tr("No images in folder"));
     } else {
@@ -147,8 +256,9 @@ void LoopController::setIntervalSeconds(int seconds)
     m_intervalSeconds = coerced;
     saveSettings();
     emit intervalSecondsChanged();
-    if (m_enabled)
-        scheduleNext();
+    maybeSchedule();
+    if (!m_daemonMode)
+        notifyDaemonReload();
 }
 
 void LoopController::setOrder(const QString &order)
@@ -161,8 +271,13 @@ void LoopController::setOrder(const QString &order)
     emit orderChanged();
     rebuildPlaylist(true);
     if (m_enabled && !m_playlist.isEmpty()) {
-        applyCurrent();
-        scheduleNext();
+        if (m_daemonMode) {
+            applyCurrent();
+            scheduleNext();
+        } else {
+            applyCurrent();
+            notifyDaemonReload();
+        }
     }
 }
 
@@ -175,8 +290,14 @@ void LoopController::setScaleMode(const QString &mode)
     m_scaleMode = next;
     saveSettings();
     emit scaleModeChanged();
-    if (m_enabled)
-        applyCurrent();
+    if (m_enabled) {
+        if (m_daemonMode)
+            applyCurrent();
+        else {
+            applyCurrent();
+            notifyDaemonReload();
+        }
+    }
 }
 
 void LoopController::setIncludeSubfolders(bool include)
@@ -188,8 +309,13 @@ void LoopController::setIncludeSubfolders(bool include)
     emit includeSubfoldersChanged();
     rebuildPlaylist(true);
     if (m_enabled && !m_playlist.isEmpty()) {
-        applyCurrent();
-        scheduleNext();
+        if (m_daemonMode) {
+            applyCurrent();
+            scheduleNext();
+        } else {
+            applyCurrent();
+            notifyDaemonReload();
+        }
     } else if (m_playlist.isEmpty()) {
         setStatusText(tr("No images in folder"));
     }
@@ -197,17 +323,42 @@ void LoopController::setIncludeSubfolders(bool include)
 
 void LoopController::next()
 {
+    if (!m_daemonMode && m_enabled && callDaemon(QStringLiteral("daemonNext"))) {
+        loadSettings();
+        emit playlistChanged();
+        emit statusTextChanged();
+        refreshServiceStatus();
+        updateRunningStatusText();
+        return;
+    }
+    daemonNext();
+}
+
+void LoopController::previous()
+{
+    if (!m_daemonMode && m_enabled && callDaemon(QStringLiteral("daemonPrevious"))) {
+        loadSettings();
+        emit playlistChanged();
+        emit statusTextChanged();
+        refreshServiceStatus();
+        updateRunningStatusText();
+        return;
+    }
+    daemonPrevious();
+}
+
+void LoopController::daemonNext()
+{
     if (m_playlist.isEmpty())
         return;
     m_currentIndex = ImageUtil::nextIndex(m_currentIndex, m_playlist.size());
     saveSettings();
     emit playlistChanged();
     applyCurrent();
-    if (m_enabled)
-        scheduleNext();
+    maybeSchedule();
 }
 
-void LoopController::previous()
+void LoopController::daemonPrevious()
 {
     if (m_playlist.isEmpty())
         return;
@@ -215,17 +366,85 @@ void LoopController::previous()
     saveSettings();
     emit playlistChanged();
     applyCurrent();
-    if (m_enabled)
-        scheduleNext();
+    maybeSchedule();
+}
+
+void LoopController::daemonApplyCurrent()
+{
+    applyCurrent();
+}
+
+QString LoopController::ping() const
+{
+    return QStringLiteral("ok");
+}
+
+void LoopController::stopSlideshow()
+{
+    if (!m_enabled && m_daemonMode) {
+        if (m_statusNotification)
+            m_statusNotification->clear();
+        QCoreApplication::quit();
+        return;
+    }
+
+    m_enabled = false;
+    saveSettings();
+    emit enabledChanged();
+    m_timer.stop();
+    m_nextTick = QDateTime();
+    if (m_statusNotification)
+        m_statusNotification->clear();
+
+    if (m_daemonMode) {
+        setStatusText(tr("Slideshow stopped"));
+        // Exit cleanly; Restart=on-failure will not respawn exit 0.
+        QCoreApplication::quit();
+        return;
+    }
+
+    stopUserService();
+    refreshServiceStatus();
+    setStatusText(tr("Slideshow stopped"));
+}
+
+void LoopController::reload()
+{
+    loadSettings();
+    rebuildPlaylist(false);
+    if (m_daemonMode) {
+        if (m_enabled && !m_playlist.isEmpty()) {
+            applyCurrent();
+            scheduleNext();
+            setStatusText(tr("Background slideshow running"));
+            refreshStatusNotification();
+        } else {
+            m_timer.stop();
+            m_nextTick = QDateTime();
+            if (m_statusNotification)
+                m_statusNotification->clear();
+            setStatusText(m_enabled ? tr("Daemon idle — no images")
+                                    : tr("Daemon idle — slideshow disabled"));
+        }
+    } else {
+        refreshServiceStatus();
+        updateRunningStatusText();
+    }
 }
 
 void LoopController::refreshPlaylist()
 {
     rebuildPlaylist(false);
     if (m_enabled && !m_playlist.isEmpty()) {
-        applyCurrent();
-        scheduleNext();
-        setStatusText(tr("Slideshow running"));
+        if (m_daemonMode) {
+            applyCurrent();
+            scheduleNext();
+            setStatusText(tr("Background slideshow running"));
+        } else {
+            applyCurrent();
+            notifyDaemonReload();
+            updateRunningStatusText();
+        }
     }
 }
 
@@ -236,6 +455,13 @@ void LoopController::applyCurrent()
     if (m_currentIndex < 0 || m_currentIndex >= m_playlist.size())
         m_currentIndex = 0;
     applyPath(m_playlist.at(m_currentIndex));
+}
+
+void LoopController::refreshServiceStatus()
+{
+    if (m_daemonMode)
+        return;
+    setServiceRunning(queryServiceActive());
 }
 
 QStringList LoopController::folderEntries(const QString &path) const
@@ -279,9 +505,173 @@ QString LoopController::homePath() const
 
 void LoopController::onTick()
 {
-    if (!m_enabled)
+    if (!m_daemonMode || !m_enabled)
         return;
-    next();
+    if (m_nextTick.isValid() && QDateTime::currentDateTimeUtc() < m_nextTick) {
+        armTimerChunk();
+        return;
+    }
+    daemonNext();
+}
+
+void LoopController::maybeSchedule()
+{
+    if (m_daemonMode && m_enabled)
+        scheduleNext();
+}
+
+void LoopController::notifyDaemonReload()
+{
+    callDaemon(QStringLiteral("reload"));
+}
+
+bool LoopController::callDaemon(const QString &method)
+{
+    QDBusInterface iface(QString::fromLatin1(dbusServiceName()),
+                         QString::fromLatin1(dbusObjectPath()),
+                         QString::fromLatin1(dbusInterfaceName()),
+                         QDBusConnection::sessionBus());
+    if (!iface.isValid())
+        return false;
+    const QDBusMessage reply = iface.call(method);
+    return reply.type() != QDBusMessage::ErrorMessage;
+}
+
+bool LoopController::queryServiceActive() const
+{
+    QDBusInterface iface(QString::fromLatin1(dbusServiceName()),
+                         QString::fromLatin1(dbusObjectPath()),
+                         QString::fromLatin1(dbusInterfaceName()),
+                         QDBusConnection::sessionBus());
+    if (iface.isValid()) {
+        const QDBusMessage reply = iface.call(QStringLiteral("ping"));
+        if (reply.type() != QDBusMessage::ErrorMessage)
+            return true;
+    }
+
+    QDBusInterface systemd(QStringLiteral("org.freedesktop.systemd1"),
+                           QStringLiteral("/org/freedesktop/systemd1"),
+                           QStringLiteral("org.freedesktop.systemd1.Manager"),
+                           QDBusConnection::sessionBus());
+    if (!systemd.isValid())
+        return false;
+
+    QDBusMessage getUnit = QDBusMessage::createMethodCall(
+        QStringLiteral("org.freedesktop.systemd1"),
+        QStringLiteral("/org/freedesktop/systemd1"),
+        QStringLiteral("org.freedesktop.systemd1.Manager"),
+        QStringLiteral("GetUnit"));
+    getUnit << QString::fromLatin1(kUnit);
+    const QDBusMessage unitReply = QDBusConnection::sessionBus().call(getUnit);
+    if (unitReply.type() == QDBusMessage::ErrorMessage)
+        return false;
+
+    const QDBusObjectPath unitPath = unitReply.arguments().value(0).value<QDBusObjectPath>();
+    QDBusInterface props(QStringLiteral("org.freedesktop.systemd1"),
+                         unitPath.path(),
+                         QStringLiteral("org.freedesktop.DBus.Properties"),
+                         QDBusConnection::sessionBus());
+    const QDBusReply<QVariant> active =
+            props.call(QStringLiteral("Get"),
+                       QStringLiteral("org.freedesktop.systemd1.Unit"),
+                       QStringLiteral("ActiveState"));
+    return active.isValid() && active.value().toString() == QLatin1String("active");
+}
+
+bool LoopController::startUserService()
+{
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected())
+        return false;
+
+    QDBusMessage enable = QDBusMessage::createMethodCall(
+        QStringLiteral("org.freedesktop.systemd1"),
+        QStringLiteral("/org/freedesktop/systemd1"),
+        QStringLiteral("org.freedesktop.systemd1.Manager"),
+        QStringLiteral("EnableUnitFiles"));
+    enable << QStringList{QString::fromLatin1(kUnit)} << false << true;
+    bus.call(enable);
+
+    QDBusMessage start = QDBusMessage::createMethodCall(
+        QStringLiteral("org.freedesktop.systemd1"),
+        QStringLiteral("/org/freedesktop/systemd1"),
+        QStringLiteral("org.freedesktop.systemd1.Manager"),
+        QStringLiteral("StartUnit"));
+    start << QString::fromLatin1(kUnit) << QStringLiteral("replace");
+    const QDBusMessage reply = bus.call(start);
+    return reply.type() != QDBusMessage::ErrorMessage;
+}
+
+bool LoopController::stopUserService()
+{
+    QDBusConnection bus = QDBusConnection::sessionBus();
+    if (!bus.isConnected())
+        return false;
+
+    QDBusMessage stop = QDBusMessage::createMethodCall(
+        QStringLiteral("org.freedesktop.systemd1"),
+        QStringLiteral("/org/freedesktop/systemd1"),
+        QStringLiteral("org.freedesktop.systemd1.Manager"),
+        QStringLiteral("StopUnit"));
+    stop << QString::fromLatin1(kUnit) << QStringLiteral("replace");
+    bus.call(stop);
+
+    QDBusMessage disable = QDBusMessage::createMethodCall(
+        QStringLiteral("org.freedesktop.systemd1"),
+        QStringLiteral("/org/freedesktop/systemd1"),
+        QStringLiteral("org.freedesktop.systemd1.Manager"),
+        QStringLiteral("DisableUnitFiles"));
+    disable << QStringList{QString::fromLatin1(kUnit)} << false;
+    bus.call(disable);
+    return true;
+}
+
+void LoopController::setServiceRunning(bool running)
+{
+    if (m_serviceRunning == running)
+        return;
+    m_serviceRunning = running;
+    emit serviceRunningChanged();
+}
+
+void LoopController::updateRunningStatusText()
+{
+    if (!m_enabled) {
+        setStatusText(tr("Slideshow stopped"));
+        return;
+    }
+    if (m_serviceRunning)
+        setStatusText(tr("Background slideshow running — controls in Events"));
+    else
+        setStatusText(tr("Slideshow on — starting background service…"));
+}
+
+void LoopController::refreshStatusNotification()
+{
+    if (!m_daemonMode || !m_statusNotification || !m_enabled)
+        return;
+
+    const QString name = currentName();
+    const QString summary = name.isEmpty() ? tr("Wallpaper Loop") : name;
+
+    QString intervalLabel;
+    if (m_intervalSeconds == 86400)
+        intervalLabel = tr("1 day");
+    else if (m_intervalSeconds == 604800)
+        intervalLabel = tr("1 week");
+    else if (m_intervalSeconds == 2592000)
+        intervalLabel = tr("1 month");
+    else if (m_intervalSeconds >= 3600 && m_intervalSeconds % 3600 == 0)
+        intervalLabel = tr("%1 h").arg(m_intervalSeconds / 3600);
+    else if (m_intervalSeconds >= 60 && m_intervalSeconds % 60 == 0)
+        intervalLabel = tr("%1 min").arg(m_intervalSeconds / 60);
+    else
+        intervalLabel = tr("%1 s").arg(m_intervalSeconds);
+
+    m_statusNotification->show(
+        summary,
+        tr("%1 · every %2 · Events: Next / Previous / Stop")
+            .arg(positionText(), intervalLabel));
 }
 
 void LoopController::loadSettings()
@@ -309,6 +699,9 @@ void LoopController::saveSettings() const
     s.setValue(QStringLiteral("scaleMode"), m_scaleMode);
     s.setValue(QStringLiteral("includeSubfolders"), m_includeSubfolders);
     s.setValue(QStringLiteral("currentIndex"), m_currentIndex);
+    if (!m_playlist.isEmpty() && m_currentIndex >= 0 && m_currentIndex < m_playlist.size())
+        s.setValue(QStringLiteral("currentPath"), m_playlist.at(m_currentIndex));
+    s.sync();
 }
 
 void LoopController::rebuildPlaylist(bool resetIndex)
@@ -341,9 +734,28 @@ void LoopController::setStatusText(const QString &text)
 void LoopController::scheduleNext()
 {
     m_timer.stop();
-    if (!m_enabled || m_playlist.isEmpty())
+    m_nextTick = QDateTime();
+    if (!m_daemonMode || !m_enabled || m_playlist.isEmpty())
         return;
-    m_timer.start(m_intervalSeconds * 1000);
+    m_nextTick = QDateTime::currentDateTimeUtc().addSecs(m_intervalSeconds);
+    armTimerChunk();
+}
+
+void LoopController::armTimerChunk()
+{
+    if (!m_daemonMode || !m_enabled || !m_nextTick.isValid())
+        return;
+
+    const qint64 remainingMs = QDateTime::currentDateTimeUtc().msecsTo(m_nextTick);
+    if (remainingMs <= 0) {
+        m_timer.stop();
+        QMetaObject::invokeMethod(this, "onTick", Qt::QueuedConnection);
+        return;
+    }
+
+    static const int kMaxChunkMs = 6 * 60 * 60 * 1000;
+    const int chunk = static_cast<int>(qMin(remainingMs, static_cast<qint64>(kMaxChunkMs)));
+    m_timer.start(chunk);
 }
 
 bool LoopController::applyPath(const QString &sourcePath)
@@ -358,10 +770,6 @@ bool LoopController::applyPath(const QString &sourcePath)
         }
     };
 
-    // Sailfish has no Android-style WallpaperManager — home/lock visuals
-    // come from Ambiences. setAmbience(file://…) creates/activates one.
-    // Prefer the original file (ambienced handles scaling); only stage a
-    // local copy when a non-default scale mode is requested.
     QString pathForAmbience = sourcePath;
     if (m_scaleMode != QLatin1String("FILL")) {
         const QString staged = stageScaledImage(sourcePath);
@@ -403,7 +811,6 @@ bool LoopController::applyPath(const QString &sourcePath)
         return false;
     }
     if (reply.value() <= 0) {
-        // contentId 0 = ambienced rejected the URI (seen with bad paths).
         setStatusText(tr("Ambience rejected %1").arg(QFileInfo(sourcePath).fileName()));
         logApply(QStringLiteral("rejected contentId=%1").arg(reply.value()));
         return false;
@@ -413,6 +820,8 @@ bool LoopController::applyPath(const QString &sourcePath)
     setStatusText(m_enabled
                   ? tr("Showing %1").arg(QFileInfo(sourcePath).fileName())
                   : tr("Applied %1").arg(QFileInfo(sourcePath).fileName()));
+    if (m_daemonMode && m_enabled)
+        refreshStatusNotification();
     return true;
 }
 
@@ -425,8 +834,6 @@ QString LoopController::stageScaledImage(const QString &sourcePath) const
     QScreen *screen = QGuiApplication::primaryScreen();
     int targetW = screen ? screen->size().width() : source.width();
     int targetH = screen ? screen->size().height() : source.height();
-    // Ambience wallpapers are often prepared square / high-res; use the
-    // larger screen edge so crop/fit looks good in portrait and landscape.
     const int edge = qMax(targetW, targetH);
     targetW = edge;
     targetH = edge;
@@ -439,7 +846,7 @@ QString LoopController::stageScaledImage(const QString &sourcePath) const
                      qreal(targetH) / source.height());
     } else if (m_scaleMode == QLatin1String("FIT")) {
         scale = fitScale;
-    } else { // CONTAIN
+    } else {
         scale = qMin(qreal(1), fitScale);
     }
 

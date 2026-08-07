@@ -17,7 +17,12 @@ def is_image_file(name: str) -> bool:
 
 
 def clamp_interval_seconds(seconds: int) -> int:
-    return max(15, min(86400, seconds))
+    return max(15, min(2592000, seconds))  # max ~30 days
+
+
+DAY = 86400
+WEEK = 604800
+MONTH = 2592000
 
 
 def normalize_order(order: str) -> str:
@@ -75,8 +80,10 @@ class ImageUtilTests(unittest.TestCase):
         self.assertEqual(clamp_interval_seconds(1), 15)
         self.assertEqual(clamp_interval_seconds(15), 15)
         self.assertEqual(clamp_interval_seconds(300), 300)
-        self.assertEqual(clamp_interval_seconds(86400), 86400)
-        self.assertEqual(clamp_interval_seconds(999999), 86400)
+        self.assertEqual(clamp_interval_seconds(DAY), DAY)
+        self.assertEqual(clamp_interval_seconds(WEEK), WEEK)
+        self.assertEqual(clamp_interval_seconds(MONTH), MONTH)
+        self.assertEqual(clamp_interval_seconds(9999999), MONTH)
 
     def test_normalize_order(self):
         self.assertEqual(normalize_order("SEQUENTIAL"), "SEQUENTIAL")

@@ -2,11 +2,12 @@ Wallpaper Loop cycles through images in a folder and applies each one as your Sa
 
 Sailfish port of the Android app Wallpaper Loop (dev.wallpaper.loop).
 
-Version 1.3.0 — stills-only Ambience slideshow.
+Version 1.5.0 — stills-only Ambience slideshow with background user service.
 
 Features:
 • Pick any folder (Pictures, Downloads, Home, Android storage Downloads)
-• Interval slider with presets from 30 seconds to 1 hour
+• Interval slider with presets from 30 seconds to 1 month (day / week / month)
+• Background systemd user service — close the app freely
 • Sequential or shuffle playback
 • Fill / Fit / Contain scaling
 • Optional subfolder scanning
@@ -14,15 +15,14 @@ Features:
 • Settings saved between launches
 
 How it works:
-Sailfish uses Ambiences for wallpaper (not Android WallpaperManager). This app calls com.jolla.ambienced.setAmbience so each image becomes the active Ambience. Home and lock screens share the same wallpaper.
+Sailfish uses Ambiences for wallpaper (not Android WallpaperManager). This app calls com.jolla.ambienced.setAmbience so each image becomes the active Ambience. Home and lock screens share the same wallpaper. Enabling Slideshow starts harbour-wallpaper-loop.service in your user session.
 
 Requirements:
 • Sailfish OS 5.x (aarch64 or armv7hl)
-• Ambience, Pictures, Downloads, and UserDirs permissions
+• Ambience, AppLaunch, Pictures, Downloads, and UserDirs permissions
 
-Limitations (1.3.0):
+Limitations (1.5.0):
 • Still images only (JPG, PNG, WebP, BMP, GIF first frame)
-• Slideshow timer runs while the app process is alive (app open or covered)
 • No separate home vs lock targets (Ambience is shared)
 • No Android-style live / video wallpaper under the home grid
 

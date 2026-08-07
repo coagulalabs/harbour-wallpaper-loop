@@ -4,12 +4,15 @@ CONFIG += sailfishapp c++14
 
 QT += core gui qml quick dbus
 
+HEADERS += \
+    src/loopcontroller.h \
+    src/imageutil.h \
+    src/statusnotification.h
+
 SOURCES += \
     src/harbour-wallpaper-loop.cpp \
-    src/loopcontroller.cpp
-
-HEADERS += \
-    src/loopcontroller.h
+    src/loopcontroller.cpp \
+    src/statusnotification.cpp
 
 DISTFILES += \
     qml/harbour-wallpaper-loop.qml \
@@ -21,6 +24,7 @@ DISTFILES += \
     rpm/harbour-wallpaper-loop.changes.in \
     rpm/harbour-wallpaper-loop.profile \
     rpm/harbour-wallpaper-loop.spec \
+    systemd/harbour-wallpaper-loop.service \
     harbour-wallpaper-loop.desktop \
     icons/harbour-wallpaper-loop.svg \
     LICENSE \

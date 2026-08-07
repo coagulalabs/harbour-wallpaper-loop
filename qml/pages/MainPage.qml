@@ -5,9 +5,21 @@ import harbour.wallpaperloop 1.0
 Page {
     id: page
 
-    property var intervalPresets: [30, 60, 300, 900, 1800, 3600]
+    property var intervalPresets: [30, 60, 300, 900, 1800, 3600, 86400, 604800, 2592000]
 
     function formatInterval(seconds) {
+        if (seconds >= 2592000 && seconds % 2592000 === 0) {
+            var months = seconds / 2592000
+            return months === 1 ? qsTr("1 month") : qsTr("%1 months").arg(months)
+        }
+        if (seconds >= 604800 && seconds % 604800 === 0) {
+            var weeks = seconds / 604800
+            return weeks === 1 ? qsTr("1 week") : qsTr("%1 weeks").arg(weeks)
+        }
+        if (seconds >= 86400 && seconds % 86400 === 0) {
+            var days = seconds / 86400
+            return days === 1 ? qsTr("1 day") : qsTr("%1 days").arg(days)
+        }
         if (seconds < 60)
             return qsTr("%1 s").arg(seconds)
         if (seconds % 3600 === 0)
@@ -15,6 +27,18 @@ Page {
         if (seconds % 60 === 0)
             return qsTr("%1 min").arg(seconds / 60)
         return qsTr("%1 s").arg(seconds)
+    }
+
+    function syncIntervalSlider() {
+        if (LoopController.intervalSeconds <= intervalSlider.maximumValue)
+            intervalSlider.value = LoopController.intervalSeconds
+    }
+
+    Component.onCompleted: syncIntervalSlider()
+
+    Connections {
+        target: LoopController
+        onIntervalSecondsChanged: syncIntervalSlider()
     }
 
     PullDownMenu {
@@ -77,7 +101,9 @@ Page {
             TextSwitch {
                 width: parent.width
                 text: qsTr("Slideshow")
-                description: qsTr("Cycles images from the chosen folder as your Ambience wallpaper")
+                description: LoopController.serviceRunning
+                             ? qsTr("Running in background — swipe this app away; use Events for Next/Previous/Stop")
+                             : qsTr("Starts a background service; then close this app and use Events for controls")
                 checked: LoopController.enabled
                 automaticCheck: false
                 onClicked: LoopController.setEnabled(!LoopController.enabled)
@@ -122,10 +148,18 @@ Page {
                 minimumValue: 15
                 maximumValue: 7200
                 stepSize: 15
-                value: LoopController.intervalSeconds
                 valueText: formatInterval(Math.round(value))
-                label: qsTr("Change every")
+                label: qsTr("Fine adjust (up to 2 h)")
                 onReleased: LoopController.setIntervalSeconds(Math.round(value))
+            }
+
+            Label {
+                x: Theme.horizontalPageMargin
+                width: parent.width - 2 * Theme.horizontalPageMargin
+                wrapMode: Text.WordWrap
+                color: Theme.secondaryColor
+                font.pixelSize: Theme.fontSizeExtraSmall
+                text: qsTr("Use presets below for 1 day, 1 week, or 1 month.")
             }
 
             Flow {
@@ -138,10 +172,7 @@ Page {
                     Button {
                         preferredWidth: Theme.buttonWidthSmall
                         text: formatInterval(modelData)
-                        onClicked: {
-                            LoopController.setIntervalSeconds(modelData)
-                            intervalSlider.value = modelData
-                        }
+                        onClicked: LoopController.setIntervalSeconds(modelData)
                     }
                 }
             }
@@ -205,7 +236,8 @@ Page {
                 text: qsTr("Sailfish uses Ambiences for wallpaper (Settings → Ambiences). "
                            + "This app calls setAmbience for each image — home and lock share it. "
                            + "Supported: JPG, PNG, WebP, BMP, GIF (first frame). "
-                           + "Keep the app running or covered for the timer to keep ticking.")
+                           + "After starting the slideshow, close the app: Next / Previous / Stop "
+                           + "appear in the Events (notification) view.")
             }
         }
     }
